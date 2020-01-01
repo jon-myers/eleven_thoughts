@@ -1,7 +1,7 @@
 from funcs import select_partition, normalize, dc_alg, get_partition, segment, \
-    auto_args, spread, dc_alg, weighted_dc_alg, print_progress_bar
+    auto_args, spread, dc_alg, weighted_dc_alg, print_progress_bar, easy_midi_generator
 from funcs import normal_distribution_maker as ndm
-
+import itertools
 import numpy as np
 from matplotlib import pyplot as plt
 import random
@@ -11,7 +11,7 @@ class Instrument:
     @auto_args
     def __init__(self, max_td):
         # vars assigned outside of class: num
-        self.place_holder = 'nothing'
+        self.notes = []
 
 class Player:
     @auto_args
@@ -20,7 +20,7 @@ class Player:
 
     def __init__(self, noi, player_num):
         # will prob need to be refined; currently max speed is 7, min is 1
-        self.max_td = 2 ** (self.player_num / 3.5)
+        self.max_td = 2 * (2 ** (self.player_num / 3.5))
         self.insts = [Instrument(self.max_td/self.noi) for i in range(self.noi)]
 
 class Atom:
@@ -84,15 +84,19 @@ class Atom:
         # print(self.note_matrix)
         # print(np.shape(self.note_matrix))
         self.base_rhythm = segment(np.shape(self.note_matrix)[1], self.atom_nCVI)
+        dyn_weights = normalize(np.random.uniform(0, 1, 4))
+        self.dyns = weighted_dc_alg(np.arange(4), len(self.cs_stream), weights = dyn_weights)
 
-    def juggle_atom(self):
-        return normalize(np.array([spread(i, 1.25) for i in self.base_rhythm])) * self.atom_dur
+    def juggle_atom(self, spd):
+        return normalize(np.array([spread(i, spd) for i in self.base_rhythm])) * self.atom_dur
 
 
 class Group:
     @auto_args
 
-    def __init__(self, insts, section_dur, atomic_min, rest_ratio, atom_nCVI):
+    def __init__(
+        self, insts, section_dur, atomic_min, rest_ratio, atom_nCVI, start_time
+        ):
         self.rest_ratio = spread(self.rest_ratio, 1.25)
         self.make_frame()
         self.atom = Atom(self.insts, self.atom_nCVI, self.atom_dur)
@@ -110,18 +114,25 @@ class Group:
         self.rests = segment(self.nor, 10) * (self.section_dur - (self.reps * self.atom_dur))
 
     def fill_frame(self):
-        st = 0
+        st = self.start_time
         self.note_locs = []
         for i, rp in enumerate(self.rep_partition):
             for j in range(rp):
                 atom_start = st
                 st += self.atom_dur
-                atom = self.atom.juggle_atom()
+                atom = self.atom.juggle_atom(1.25)
                 for k in range(len(atom)):
                     self.note_locs.append(atom_start + np.sum(atom[:k]))
             if i != len(self.rep_partition)-1:
                 st += self.rests[i]
+        # print('')
+        # print(self.atom.note_matrix)
+        # print(self.reps)
         self.group_note_matrix = np.tile(self.atom.note_matrix, self.reps)
+        # print(self.group_note_matrix)
+        # print('')
+
+        self.group_dyns = np.tile(self.atom.dyns, self.reps)
 
 
 
@@ -131,7 +142,9 @@ class Group:
 class Section:
     @auto_args
 
-    def __init__(self, section_num, section_dur, atomic_min, rest_ratio, nos):
+    def __init__(
+        self, section_num, section_dur, atomic_min, rest_ratio, nos, start_time
+        ):
         # vars assigned outside of class: noi, inst_stream, insts
         self.atom_nCVI = np.random.uniform(20)
 
@@ -149,6 +162,7 @@ class Section:
         am = self.atomic_min
         rr = self.rest_ratio
         an = self.atom_nCVI
+        st = self.start_time
         for i, item in enumerate(self.partition):
             # print(item)
             gi = self.insts[ct:ct+item]
@@ -161,7 +175,7 @@ class Section:
             # print()
             # gi = [self.insts[j] for j in gi]
             ct += item
-            self.groups.append(Group(gi, sd, am, rr, an))
+            self.groups.append(Group(gi, sd, am, rr, an, st))
 
 
 
@@ -171,8 +185,10 @@ class Piece:
     @auto_args
 
     def __init__(self, players, nos, dur_tot, atomic_min, avg_rr):
+        self.vels = [20, 50, 80, 110]
         self.noi = sum([player.noi for player in players])
         self.section_durs = segment(self.nos, 10) * self.dur_tot
+        self.section_start_times = [sum(self.section_durs[:i]) for i in range(self.nos)]
         self.rrs = segment(self.nos, 10) * self.avg_rr * self.nos
         self.assign_inst_nums()
         print_progress_bar(0, self.nos, prefix='Progress:', suffix='Complete', length=50)
@@ -180,6 +196,25 @@ class Piece:
         self.make_section_instrumentation()
         # self.view_instrumentation_grid()
         for section in self.sections: section.__continue__()
+        self.notes_to_insts()
+        self.print_midi()
+
+    def notes_to_insts(self):
+        for section in self.sections:
+            for group in section.groups:
+                for i, inst in enumerate(group.insts):
+                    event_indices = np.nonzero(group.group_note_matrix[i])
+                    # print()
+                    # # print(group.reps)
+                    # print(group.group_note_matrix)
+                    # print(group.group_note_matrix[:, i])
+                    # print(event_indices)
+                    # print()
+                    group.note_locs = np.array(group.note_locs)
+                    note_locs = group.note_locs[event_indices]
+                    dyns = group.group_dyns[event_indices]
+                    for j, note_loc in enumerate(note_locs):
+                        inst.notes.append([inst.num + 44, note_loc, 0.1,self.vels[dyns[j]]])
 
     def assign_inst_nums(self):
         ct = 0
@@ -197,7 +232,8 @@ class Piece:
         for i in range(self.nos):
             sd = self.section_durs[i]
             rr = self.rrs[i]
-            self.sections.append(Section(i, sd, am, rr, nos))
+            st = self.section_start_times[i]
+            self.sections.append(Section(i, sd, am, rr, nos, st))
 
 
 
@@ -228,3 +264,12 @@ class Piece:
         print(grid)
         plt.imshow(grid)
         plt.show()
+
+    def print_midi(self):
+        path = 'saves/midi/'
+        notes = [inst.notes for inst in self.insts]
+        notes = [i for i in itertools.chain.from_iterable(notes)]
+        # for inst in self.insts:
+        #     notes.append(inst.notes)
+        #     name = str(inst.num) + '.mid'
+        easy_midi_generator(notes, path + 'all_together.mid', 'Trumpet')

@@ -2,6 +2,7 @@ import numpy as np
 import random
 import itertools
 from inspect import signature
+import pretty_midi
 
 def normalize(array):
     array = np.array(array)
@@ -214,3 +215,21 @@ def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, lengt
     print(('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix)), end=printEnd)
     if iteration == total:
         print()
+
+def easy_midi_generator(notes, file_name, midi_inst_name):
+    notes = sorted(notes, key=(lambda x: x[1]))
+    score = pretty_midi.PrettyMIDI()
+    instrument_program = pretty_midi.instrument_name_to_program(midi_inst_name)
+    instrument = pretty_midi.Instrument(program=0)
+    for n, note in enumerate(notes):
+        if type(note[3]) == np.float64:
+            vel = np.int(np.round(127 * note[3]))
+        elif type(note[3]) == float:
+            vel = np.int(np.round(127 * note[3]))
+        elif type(note[3]) == int:
+            vel = note[3]
+        else: print(note[3])
+        note = pretty_midi.Note(velocity=vel, pitch=(note[0]), start=(note[1]), end=(note[1] + note[2]))
+        instrument.notes.append(note)
+    score.instruments.append(instrument)
+    score.write(file_name)
