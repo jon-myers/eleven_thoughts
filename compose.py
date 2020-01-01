@@ -1,5 +1,5 @@
 from funcs import select_partition, normalize, dc_alg, get_partition, segment, \
-    auto_args, spread
+    auto_args, spread, dc_alg, weighted_dc_alg, print_progress_bar
 from funcs import normal_distribution_maker as ndm
 
 import numpy as np
@@ -23,54 +23,147 @@ class Player:
         self.max_td = 2 ** (self.player_num / 3.5)
         self.insts = [Instrument(self.max_td/self.noi) for i in range(self.noi)]
 
-# class Phrase:
-#     @auto_args
-#
-#     def __init__(self):
+class Atom:
+    @auto_args
+
+    def __init__(self, insts, atom_nCVI, atom_dur):
+        #what is the max td? min td? need to get an nCVI and a td -> number of notes per thing and per inst.
+        # min number of notes would be "1", max would be decided by max td?
+        # each instrument has a max td, but what does that mean for the group as a whole?
+        # does each instrument need to have at least 1 item? What about concurrency?
+        # Should notes just be dropped randomly?
+        # Maybe each section has a different nCVI?
+
+        # assign chord size probs based on number of instruments. Pretty random;
+        # but should it lean toward smaller groups? should it be graded somehow?
+        if len(self.insts) == 1:
+            cs_probs = [1.0]
+        else:
+            cs_probs = np.random.normal(0.5, 0.25, size = len(self.insts))
+            cs_probs = np.clip(cs_probs, 0, 1)
+            cs_probs *= (1 / (np.arange(len(self.insts)) + 1)) ** 0.5
+            if sum(cs_probs) == 0:
+                print('cs_probs is where the zero problem is')
+                print(cs_probs)
+            cs_probs = normalize(cs_probs)
+
+        nons = []
+        # for each instrument, for each atom, you need a td.
+        for inst in self.insts:
+            # print(inst)
+            max_td = inst.max_td
+            min_td = 1 / self.atom_dur
+            td = np.clip(np.random.normal(0.5, 0.25), 0, 1) * np.log2(max_td / min_td)
+            td = min_td * (2 ** td)
+            #number of notes
+            non = td * self.atom_dur
+            nons.append(non)
+
+        nons = np.array(nons)
+        # print()
+        # print(len(self.insts))
+        # print(cs_probs)
+        if len(self.insts) == 1:
+            self.cs_stream = np.repeat(1, np.sum(nons))
+        else:
+            avg_notes_per_cs_epoch = np.sum((np.arange(len(self.insts)) + 1) * cs_probs)
+            estimated_epochs = np.int(np.ceil(np.sum(nons) / avg_notes_per_cs_epoch)) + 2
+            self.cs_stream = weighted_dc_alg(np.arange(len(self.insts))+1, estimated_epochs, weights = cs_probs)
+        self.note_stream = weighted_dc_alg(np.arange(len(self.insts)), np.int(np.sum(nons)), weights = nons / np.sum(nons))
+        if sum(self.cs_stream) < len(self.note_stream): print('we have a problem')
+        self.note_matrix = np.zeros((len(self.insts), len(self.cs_stream)), 'int')
+        ct = 0
+        for i, item in enumerate(self.cs_stream):
+            for note in self.note_stream[ct:ct+item]:
+                self.note_matrix[note, i] = 1
+            ct += item
+
+        nm = self.note_matrix.T
+        proper_indices = np.logical_not(np.all(nm == False, axis = 1))
+        self.note_matrix = nm[proper_indices].T
+        # print(self.note_matrix)
+        # print(np.shape(self.note_matrix))
+        self.base_rhythm = segment(np.shape(self.note_matrix)[1], self.atom_nCVI)
+
+    def juggle_atom(self):
+        return normalize(np.array([spread(i, 1.25) for i in self.base_rhythm])) * self.atom_dur
 
 
 class Group:
     @auto_args
 
-    def __init__(self, insts, section_dur, atomic_min, rest_ratio):
+    def __init__(self, insts, section_dur, atomic_min, rest_ratio, atom_nCVI):
         self.rest_ratio = spread(self.rest_ratio, 1.25)
         self.make_frame()
+        self.atom = Atom(self.insts, self.atom_nCVI, self.atom_dur)
+        self.fill_frame()
 
     def make_frame(self):
         # make atomic size
         log_spread =  np.log2(self.section_dur/self.atomic_min) - 3
-        self.atomic_size = self.atomic_min * (2**np.random.uniform(log_spread))
-        self.reps = np.int(np.floor((self.section_dur * (1 - self.rest_ratio)) / self.atomic_size))
+        self.atom_dur = self.atomic_min * (2**np.random.uniform(log_spread))
+        self.reps = np.int(np.floor((self.section_dur * (1 - self.rest_ratio)) / self.atom_dur))
         self.rep_partition = select_partition(self.reps, type='rounded', one_allowed='no')
         np.random.shuffle(self.rep_partition)
         #number of rests
         self.nor = len(self.rep_partition) - 1
-        self.rests = segment(self.nor, 10) * (self.section_dur - (self.reps * self.atomic_size))
+        self.rests = segment(self.nor, 10) * (self.section_dur - (self.reps * self.atom_dur))
 
-        #how many breaks?
+    def fill_frame(self):
+        st = 0
+        self.note_locs = []
+        for i, rp in enumerate(self.rep_partition):
+            for j in range(rp):
+                atom_start = st
+                st += self.atom_dur
+                atom = self.atom.juggle_atom()
+                for k in range(len(atom)):
+                    self.note_locs.append(atom_start + np.sum(atom[:k]))
+            if i != len(self.rep_partition)-1:
+                st += self.rests[i]
+        self.group_note_matrix = np.tile(self.atom.note_matrix, self.reps)
+
+
+
+
 
 
 class Section:
     @auto_args
 
-    def __init__(self, section_num, section_dur, atomic_min, rest_ratio):
+    def __init__(self, section_num, section_dur, atomic_min, rest_ratio, nos):
         # vars assigned outside of class: noi, inst_stream, insts
-        self.place_holder = 'nothing'
+        self.atom_nCVI = np.random.uniform(20)
 
     def __continue__(self):
         self.partition = select_partition(len(self.insts))
         self.make_grouping()
+        # print(self.section_num)
+        print_progress_bar(self.section_num+1, self.nos, prefix='Progress:', suffix='Complete', length=50)
 
     def make_grouping(self):
         random.shuffle(self.inst_stream)
         self.groups = []
         ct = 0
-        # print(self.partition)
+        sd = self.section_dur
+        am = self.atomic_min
+        rr = self.rest_ratio
+        an = self.atom_nCVI
         for i, item in enumerate(self.partition):
             # print(item)
-            group_insts = self.inst_stream[ct:ct+item]
+            gi = self.insts[ct:ct+item]
+            if len(gi) == 0:
+                print('whoops')
+                print(self.partition)
+            # print()
+            # print(gi)
+            # print(len(self.insts))
+            # print()
+            # gi = [self.insts[j] for j in gi]
             ct += item
-            self.groups.append(Group(group_insts, self.section_dur, self.atomic_min, self.rest_ratio))
+            self.groups.append(Group(gi, sd, am, rr, an))
+
+
 
 
 
@@ -82,6 +175,7 @@ class Piece:
         self.section_durs = segment(self.nos, 10) * self.dur_tot
         self.rrs = segment(self.nos, 10) * self.avg_rr * self.nos
         self.assign_inst_nums()
+        print_progress_bar(0, self.nos, prefix='Progress:', suffix='Complete', length=50)
         self.instantiate_sections()
         self.make_section_instrumentation()
         # self.view_instrumentation_grid()
@@ -99,10 +193,11 @@ class Piece:
     def instantiate_sections(self):
         self.sections = []
         am = self.atomic_min
+        nos = self.nos
         for i in range(self.nos):
             sd = self.section_durs[i]
             rr = self.rrs[i]
-            self.sections.append(Section(i, sd, am, rr))
+            self.sections.append(Section(i, sd, am, rr, nos))
 
 
 
@@ -111,7 +206,10 @@ class Piece:
     def make_section_instrumentation(self):
         # first, how many insts per section? min = 1, max = max; log scale? me thinks yes
         # should try to get even spread? normal curve?
-        dist = normalize(ndm(self.noi) ** 0.1)
+        dist = ndm(self.noi) ** 0.1
+        if sum(dist) == 0: print('dist is where the problem is')
+        dist = normalize(dist)
+        # dist = normalize(ndm(self.noi) ** 0.1)
         for section in self.sections:
             section.noi = np.random.choice(np.arange(self.noi), p=dist)
         stream_size = sum([section.noi for section in self.sections])

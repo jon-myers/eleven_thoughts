@@ -123,3 +123,94 @@ def auto_args(target):
 def spread(init, max_ratio):
     exponent = np.clip(np.random.normal() / 3, -1, 1)
     return init * (max_ratio ** exponent)
+
+def dc_alg(choices, epochs, alpha=1.0, weights=0, counts=0, verbosity=0):
+    selections = []
+    if np.all(counts == 0):
+        counts = [
+         1] * len(choices)
+    weights = np.array(weights)
+    if np.all(weights) == 0:
+        weights = [
+         1] * len(choices)
+    for q in range(epochs):
+        sum_ = sum([weights[i] * counts[i] ** alpha for i in range(len(choices))])
+        probs = [weights[i] * counts[i] ** alpha / sum_ for i in range(len(choices))]
+        selection_index = np.random.choice((list(range(len(choices)))), p=probs)
+        counts = [i + 1 for i in counts]
+        counts[selection_index] = 0
+        selections.append(choices[selection_index])
+    selections = np.array(selections)
+    counts = np.array(counts)
+    if verbosity == 0:
+        return selections
+    if verbosity == 1:
+        return (
+         selections, counts)
+
+def dc_weight_finder(choices, alpha, weights, test_epochs=500):
+    choices = np.arange(len(choices))
+    weights_ = [i / sum(weights) for i in weights]
+    max_off = .051
+    # cts_ = 0
+    test_ct = 0
+    while max_off > 0.05:
+        test_ct += 1
+        if (test_ct > 1000) and (test_ct%100 == 0): print(test_ct)
+
+        # print(cts_)
+        y = dc_alg(choices, test_epochs, alpha, weights)
+        #this should be rewritten as a np function
+        results = np.array([np.count_nonzero(y==choices[i]) / test_epochs for i in choices])
+        results = np.where(results == 0, results, 0.001)
+        diff = weights_ / results
+        weights *= diff
+        weights /= sum(weights)
+        max_off = np.max(1 - diff)
+        # print(max_off)
+        # cts_+=1
+        # print(cts_)
+    return weights
+
+def weighted_dc_alg(choices, epochs, alpha=1.0, weights=0, counts=0, verbosity=0, weights_dict={}):
+    if np.any(weights) != 0:
+        # this basically says if its not going to work, just double the length
+        #of the choice array, and try again. Might be better to just double the
+        # one value thats above 0.5 . Or, might make more sense to just do a straight
+        # random choice.
+        if np.max(weights) >= 0.5:
+            choices = np.tile(choices, 2)
+            weights = np.tile(weights/2, 2)
+            counts = np.tile(counts, 2)
+
+        #if there are any weights that are 0, this will just remove that item
+        #from the weights and from the choices, so dc_weight_finder doesn't break
+        nonzero_locs = np.nonzero(weights != 0)
+        choices = choices[nonzero_locs]
+        weights = weights[nonzero_locs]
+        weights = dc_weight_finder(choices, alpha, weights)
+    selections = dc_alg(choices, epochs, alpha, weights, counts, verbosity)
+    return selections
+
+
+def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd='\r'):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        printEnd    - Optional  : end character (e.g. "
+", "
+") (Str)
+    """
+    percent = ('{0:.' + str(decimals) + 'f}').format(100 * (iteration / float(total)))
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print(('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix)), end=printEnd)
+    if iteration == total:
+        print()
