@@ -1,10 +1,173 @@
 from funcs import select_partition, normalize, dc_alg, get_partition, segment, \
-    auto_args, spread, dc_alg, weighted_dc_alg, print_progress_bar, easy_midi_generator
+    auto_args, spread, dc_alg, weighted_dc_alg, print_progress_bar, \
+    easy_midi_generator, bpm_to_pulse_dur, delta_to_pulse_loc, pulses_to_measures, \
+    to_time_sig, lp_line_pos
 from funcs import normal_distribution_maker as ndm
 import itertools
 import numpy as np
 from matplotlib import pyplot as plt
 import random
+from quantize import iter_pc, Pulse_Collection
+
+
+
+# this is solely for notation. inst_num is relative to the player, not the whole
+# shebang.
+class Note:
+
+    def __init__(self, lp_note, inst_num):
+        self.delta = lp_note[0]
+        self.inst_num = inst_num
+        self.chord = [inst_num]
+
+
+
+
+
+# this is solely for notation. inst_num is relative to the player, not the whole
+# shebang.
+class Measure:
+    #pulse_dur is number of pulses in measure
+    def __init__(self, pulse_size, pulse_start, noi):
+        self.noi = noi
+        self.pulse_size = pulse_size
+        self.pulse_start = pulse_start
+        self.pulse_end = pulse_start + pulse_size
+        self.pulses = [1 for i in range(np.int(np.ceil(self.pulse_size)))]
+        if self.pulse_size % 1 == 0.5: self.pulses[-1] = 0.5
+        self.notes = []
+
+    def remove_duplicates(self):
+        for n in range(1, len(self.notes)-1)[::-1]:
+            na = self.notes[n]
+            nb = self.notes[n-1]
+            if na.delta == nb.delta and na.inst_num == nb.inst_num:
+                self.notes.pop(n)
+
+    def chordify(self):
+        for n in range(1, len(self.notes)-1)[::-1]:
+            na = self.notes[n]
+            nb = self.notes[n-1]
+            if na.delta == nb.delta:
+                nb.chord.append(na.inst_num)
+                self.notes.pop(n)
+
+    def pulsify(self):
+        for note in self.notes:
+            note.pulse_delta = note.delta - self.pulse_start
+
+
+    def get_note_name(self, inst_num):
+        if self.noi == 2:
+            return ["b", "cis'"][inst_num]
+        elif self.noi == 3:
+            return ["bes", "c'", "d'"][inst_num]
+        elif self.noi == 4:
+            return ["a", "b", "cis'", "d'"][inst_num]
+        elif self.noi == 5:
+            return ["aes", "bes", "c'", "d'", "e'"][inst_num]
+
+    def notate(self):
+        out = ''
+        for p, pulse in enumerate(self.pulses):
+            rel_notes = [n for n in self.notes if n.pulse_delta//1 == p]
+            rel_deltas = [np.around(n.pulse_delta%1, decimals=2) for n in rel_notes]
+            nn = [self.get_note_name(n.inst_num) for n in rel_notes]
+            if pulse == 0.5:
+                if len(rel_notes) == 0:
+                    out += 'r8 '
+                elif len(rel_notes) == 1:
+                    if rel_deltas[0] == 0:
+                        out += nn[0] + '8 '
+                    elif rel_deltas[0] == 0.5:
+                        out += 'r16[ ' + nn[0] + '16]'
+                elif len(rel_notes) == 2:
+                    for i, rd in enumerate(rel_deltas):
+                        if i == 0:
+                            out += nn[0]+'16[ '
+                        if i == 1:
+                            out += nn[1] + '16] '
+            else:
+                if len(rel_notes) == 0:
+                    out += 'r4 '
+                elif len(rel_notes) == 1:
+                    rd = rel_deltas[0]
+                    print(rd)
+                    if rd == 0:
+                        out += nn[0] + '4 '
+                    elif rd == 0.25:
+                        out += 'r16[ ' + nn[0] + '8.] '
+                    elif rd == 0.5:
+                        out += 'r8[ ' + nn[0] + '8] '
+                    elif rd == 0.75:
+                        out += 'r8.[ ' + nn[0] + '16] '
+                    else:
+                        out += '\\times 2/3 { '
+                        if rd == 0.33:
+                            out += 'r8 ' + nn[0] + '4 '
+                        elif rd == 0.67:
+                            out += 'r4 ' + nn[0] + '8 '
+                        out += '} '
+                elif len(rel_notes) == 2:
+                    if rel_deltas[0] == 0:
+                        if rel_deltas[1] == 0.25:
+                            out += nn[0] + '16[ ' + nn[1] + '8.] '
+                        elif rel_deltas[1] == 0.5:
+                            out += nn[0] + '8[ ' + nn[1] + '8] '
+                        elif rel_deltas[1] == 0.75:
+                            out += nn[0] + '8.[ ' + nn[1] + '16] '
+                        else:
+                            out += '\\times 2/3 { '
+                            if rel_deltas[1] == 0.33:
+                                out += nn[0] + '8 ' + nn[1] + '4 '
+                            elif rel_deltas[1] == 0.67:
+                                out += nn[0] + '4 ' + nn[1] + '8 '
+                            out += '} '
+                    elif rel_deltas[0] == 0.25:
+                        if rel_deltas[1] == 0.5:
+                            out += 'r16[ ' + nn[0] + '16 ' + nn[1] + '8] '
+                        elif rel_deltas[1] == 0.75:
+                            out += 'r16[ ' + nn[0] + '8 ' + nn[1] + '16] '
+                    elif rel_deltas[0] == 0.5:
+                        out += 'r8[ ' + nn[0] + '16 ' + nn[1] + '16] '
+                    else:
+                        out += '\\times 2/3 { r8[ ' + nn[0] + 'r8 ' + nn[1] + 'r8] } '
+                elif len(rel_notes) == 3:
+                    if rel_deltas[0] == 0:
+                        if rel_deltas[1] == 0.25:
+                            if rel_deltas[2] == 0.5:
+                                out +=  nn[0] + '16[ ' + nn[1] + '16 ' + nn[2] + '8] '
+                            else:
+                                out += nn[0] + '16[ ' + nn[1] + '8 ' + nn[2] + '16] '
+                        elif rel_deltas[1] == 0.5:
+                            out += nn[0] + '8[ ' + nn[1] + '16 ' + nn[2] + '16] '
+                        else:
+                            out += '\\times 2/3 { ' + nn[0] + '8[ ' + nn[1] + '8 ' + nn[2] + '8] } '
+                    elif rel_deltas[0] == 0.25:
+                        out += 'r16[ ' + nn[0] + '16 ' + nn[1] + '16 ' + nn[2] + '16] '
+                else:
+                    out += nn[0] + '16[ ' + nn[1] + '16 ' + nn[2] + '16 ' + nn[3] +'16] '
+        out += '|\n'
+        return out
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class Instrument:
@@ -20,8 +183,49 @@ class Player:
 
     def __init__(self, noi, player_num):
         # will prob need to be refined; currently max speed is 7, min is 1
-        self.max_td = 2 * (2 ** (self.player_num / 3.5))
+        self.max_td = 1 * (2 ** (self.player_num / 3.5))
         self.insts = [Instrument(self.max_td/self.noi) for i in range(self.noi)]
+        self.name = 'Player_' + str(player_num + 1)
+
+    def gather_notes(self):
+        self.notes = []
+        for i, inst in enumerate(self.insts):
+            for lp_note in inst.lp_notes:
+                self.notes.append(Note(lp_note, i))
+        self.notes.sort(key = lambda x: x.delta)
+
+    def gather_measures(self):
+        measure_sizes = pulses_to_measures(self.pulse_sizes)
+        self.measures = [Measure(ps, sum(measure_sizes[:i]), self.noi) for i, ps in enumerate(measure_sizes)]
+        for measure in self.measures:
+            for note in self.notes:
+                if note.delta >= measure.pulse_start and note.delta < measure.pulse_end:
+                    measure.notes.append(note)
+
+    def notate(self, measures, file_name):
+        f = open('saves/lilypond/'+file_name+'.ly', 'w')
+        l_text = file_name + ' = {\n'
+        l_text += """\clef "percussion" \stopStaff """
+        l_text += """\override Staff.StaffSymbol #'line-count = #"""+str(self.noi)+'\n'
+        l_text += "\override Staff.StaffSymbol.line-positions = #'("+lp_line_pos(self.noi)+")\n"
+        l_text += "\startStaff \key c \major\n"
+        prev_pulse_size = ''
+        for m, measure in enumerate(measures):
+            sig = to_time_sig(measure.pulse_size)
+            l_text += '\n%'+str(m+1)+'\n'
+            if measure.pulse_size != prev_pulse_size:
+                l_text += '\\numericTimeSignature ' + '\\time '+ sig +'\n'
+            prev_pulse_size = measure.pulse_size
+
+            l_text += measure.notate()
+        l_text += '}'
+        f.write(l_text)
+        # for measure in measures:
+        f.close()
+
+
+
+
 
 class Atom:
     @auto_args
@@ -134,11 +338,6 @@ class Group:
 
         self.group_dyns = np.tile(self.atom.dyns, self.reps)
 
-
-
-
-
-
 class Section:
     @auto_args
 
@@ -169,17 +368,8 @@ class Section:
             if len(gi) == 0:
                 print('whoops')
                 print(self.partition)
-            # print()
-            # print(gi)
-            # print(len(self.insts))
-            # print()
-            # gi = [self.insts[j] for j in gi]
             ct += item
             self.groups.append(Group(gi, sd, am, rr, an, st))
-
-
-
-
 
 class Piece:
     @auto_args
@@ -198,6 +388,70 @@ class Piece:
         for section in self.sections: section.__continue__()
         self.notes_to_insts()
         self.print_midi()
+        self.quantize()
+        self.print_q_midi()
+        self.make_lp_ready_notes()
+        self.pop_pulse_sizes_to_players()
+        self.notate()
+        print()
+
+
+    def notate(self):
+        for player in self.players:
+            player.gather_notes()
+            player.gather_measures()
+            for measure in player.measures:
+                measure.remove_duplicates()
+                measure.chordify()
+                measure.pulsify()
+            player.notate(player.measures, player.name)
+
+    def pop_pulse_sizes_to_players(self):
+        for player in self.players:
+            player.pulse_sizes = self.pulse_sizes
+
+    def make_lp_ready_notes(self):
+        pulse_collection = Pulse_Collection(100, self.pulse_sizes)
+        for inst in self.insts:
+            inst.lp_notes = []
+            for n, q_note in enumerate(inst.q_notes):
+                delta = q_note[1]
+                for index in range(len(pulse_collection.pc)):
+                    if pulse_collection.pc[index].start_time <= delta and pulse_collection.pc[index].end_time > delta:
+                        pulse = pulse_collection.pc[index]
+                        pulse_num = index
+                        loc_in_pulse = (delta - pulse.start_time) / pulse.dur_tot
+                        pulse_loc = pulse_num + loc_in_pulse
+                pulse_loc = pulse_loc
+                lp_note = [pulse_loc, ['pp', 'p', 'mp', 'mf'][[20, 50, 80, 110].index(q_note[3])]]
+                inst.lp_notes += [lp_note]
+
+    def quantize(self):
+        self.pulse_sizes = iter_pc(100, self.all_locs).pulse_sizes
+        for player in self.players:
+            player.locs = []
+            for inst in player.insts:
+                player.locs += [i[1] for i in inst.notes]
+            pc = Pulse_Collection(100, self.pulse_sizes)
+            pc.quantize(player.locs)
+            player.subdivs = pc.chosen_subdivs
+            # pulse_sizes = iter_pc(100, player.locs).pulse_sizes
+            for inst in player.insts:
+                inst.locs = [i[1] for i in inst.notes]
+                pc = Pulse_Collection(100, self.pulse_sizes)
+                for p, pulse in enumerate(pc.pc):
+                    # print(self.subdivs[p])
+                    pulse.subdivs = [player.subdivs[p]]
+                    pulse.make_grids()
+                pc.quantize(inst.locs)
+                inst.q_locs = pc.q_locs
+                inst.q_notes=[]
+                for n, note in enumerate(inst.notes):
+                    # print()
+                    # print(inst.locs)
+                    # print(inst.q_locs)
+                    q_note = [note[0], inst.q_locs[n], note[2], note[3]]
+                    inst.q_notes.append(q_note)
 
     def notes_to_insts(self):
         for section in self.sections:
@@ -235,19 +489,17 @@ class Piece:
             st = self.section_start_times[i]
             self.sections.append(Section(i, sd, am, rr, nos, st))
 
-
-
-# gotta happen at piece level, so that we can dc_alg around, so that there are
-# different insts for each section
+    # gotta happen at piece level, so that we can dc_alg around, so that there are
+    # different insts for each section
     def make_section_instrumentation(self):
         # first, how many insts per section? min = 1, max = max; log scale? me thinks yes
         # should try to get even spread? normal curve?
-        dist = ndm(self.noi) ** 0.1
+        dist = ndm(self.noi - 1) ** 0.1
         if sum(dist) == 0: print('dist is where the problem is')
         dist = normalize(dist)
         # dist = normalize(ndm(self.noi) ** 0.1)
         for section in self.sections:
-            section.noi = np.random.choice(np.arange(self.noi), p=dist)
+            section.noi = np.random.choice(np.arange(self.noi - 1)+1, p=dist)
         stream_size = sum([section.noi for section in self.sections])
         inst_stream = dc_alg(np.arange(self.noi), stream_size, alpha=1.0)
         ct = 0
@@ -269,7 +521,12 @@ class Piece:
         path = 'saves/midi/'
         notes = [inst.notes for inst in self.insts]
         notes = [i for i in itertools.chain.from_iterable(notes)]
-        # for inst in self.insts:
-        #     notes.append(inst.notes)
-        #     name = str(inst.num) + '.mid'
+        self.all_locs = [i[1] for i in notes]
         easy_midi_generator(notes, path + 'all_together.mid', 'Trumpet')
+
+    def print_q_midi(self):
+        path = 'saves/midi/'
+        notes = [inst.q_notes for inst in self.insts]
+        notes = [i for i in itertools.chain.from_iterable(notes)]
+
+        easy_midi_generator(notes, path + 'q_all_together.mid', 'Trumpet')

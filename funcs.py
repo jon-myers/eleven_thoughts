@@ -3,6 +3,7 @@ import random
 import itertools
 from inspect import signature
 import pretty_midi
+import os
 
 def normalize(array):
     array = np.array(array)
@@ -233,3 +234,98 @@ def easy_midi_generator(notes, file_name, midi_inst_name):
         instrument.notes.append(note)
     score.instruments.append(instrument)
     score.write(file_name)
+
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    #returns correct item and error
+    return array[idx], np.abs(array[idx] - value)
+
+def quantize(locs, grid):
+    new_locs = []
+    error = 0
+    for loc in locs:
+        new_loc, err = find_nearest(grid, loc)
+        new_locs.append(new_loc)
+        error += err
+    return new_locs, error
+
+def split_at_flip_points(pulse_list):
+    pl = pulse_list
+    havs = [i for i in range(len(pl)) if pl[i] == 0.5]
+    subgroups =[]
+    for i, item in enumerate(havs):
+        if i == 0:
+            group = pl[:item+1]
+        else:
+            group = pl[havs[i-1]+1:item+1]
+            subgroups.append(group)
+    return subgroups
+
+def measure_up(grp):
+    out = []
+    while len(grp) > 10:
+        out += [4]
+        grp = grp[4:]
+    if len(grp) == 1:
+        print('No No No!')
+    elif len(grp) == 2:
+        # 3/8
+        out += [1.5]
+    elif len(grp) == 3:
+        # 5/8
+        out += [2.5]
+    elif len(grp) == 4:
+        # 7/8
+        out += [3.5]
+    elif len(grp) == 5:
+        # 2/4, 5/8
+        out += [2, 2.5]
+    elif len(grp) == 6:
+        # 2/4, 7/8
+        out += [2, 3.5]
+    elif len(grp) == 7:
+        # 3/4, 7/8
+        out += [3, 3.5]
+    elif len(grp) == 8:
+        # 4/4, 7/8
+        out += [4, 3.5]
+    elif len(grp) == 9:
+        # 3/4, 3/4, 5/8
+        out += [3, 3, 2.5]
+    elif len(grp) == 10:
+        # 3/4, 3/4, 7/8
+        out += [3, 3, 3.5]
+    return out
+
+def pulses_to_measures(pulse_sizes):
+    subgroups = split_at_flip_points(pulse_sizes)
+    measures = [measure_up(group) for group in subgroups]
+    return [i for i in itertools.chain.from_iterable(measures)]
+
+def run_lily(fn, dir = 'saves/lilypond'):
+    os.system('docker run --rm -v $(pwd):/app -w /app gpit2286/lilypond lilypond '+ dir +'/'+fn+'.ly')
+    os.rename(fn+'.pdf', dir+'/'+fn+'.pdf')
+
+def bpm_to_pulse_dur(bpm):
+    return 60 / bpm
+
+def delta_to_pulse_loc(delta, bpm):
+    pulse_dur = bpm_to_pulse_dur(bpm)
+    return delta/pulse_dur
+
+def to_time_sig(pulse_size):
+    if pulse_size == 4: sig = "4/4"
+    if pulse_size == 3.5: sig = "7/8"
+    if pulse_size == 3: sig = "3/4"
+    if pulse_size == 2.5: sig = "5/8"
+    if pulse_size == 2: sig = "2/4"
+    if pulse_size == 1.5: sig = "3/8"
+    return sig
+
+def lp_line_pos(num):
+    if num == 5: out = "-4 -2 0 2 4"
+    if num == 4: out = "-3 -1 1 3"
+    if num == 3: out = "-2 0 2"
+    if num == 2: out = "-1 1"
+    return out
