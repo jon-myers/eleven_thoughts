@@ -1,7 +1,7 @@
 from funcs import select_partition, normalize, dc_alg, get_partition, segment, \
     auto_args, spread, dc_alg, weighted_dc_alg, print_progress_bar, \
     easy_midi_generator, bpm_to_pulse_dur, delta_to_pulse_loc, pulses_to_measures, \
-    to_time_sig, lp_line_pos
+    to_time_sig, lp_line_pos, run_lily, number_to_english
 from funcs import normal_distribution_maker as ndm
 import itertools
 import numpy as np
@@ -19,6 +19,9 @@ class Note:
         self.delta = lp_note[0]
         self.inst_num = inst_num
         self.chord = [inst_num]
+        self.dyn = ['pp','p','mp','mf'].index(lp_note[1])
+        self.dyn_chord = [self.dyn]
+
 
 
 
@@ -28,146 +31,176 @@ class Note:
 # shebang.
 class Measure:
     #pulse_dur is number of pulses in measure
-    def __init__(self, pulse_size, pulse_start, noi):
+    def __init__(self, pulse_size, pulse_start, noi, player, measure_num):
         self.noi = noi
         self.pulse_size = pulse_size
         self.pulse_start = pulse_start
         self.pulse_end = pulse_start + pulse_size
+        self.measure_num = measure_num
         self.pulses = [1 for i in range(np.int(np.ceil(self.pulse_size)))]
-        if self.pulse_size % 1 == 0.5: self.pulses[-1] = 0.5
+        if np.round(self.pulse_size % 1, 1) == 0.5: self.pulses[-1] = 0.5
         self.notes = []
+        self.player = player
+        self.mmr_trigger = 0
 
     def remove_duplicates(self):
-        for n in range(1, len(self.notes)-1)[::-1]:
+        for n in range(1, len(self.notes))[::-1]:
             na = self.notes[n]
             nb = self.notes[n-1]
-            if na.delta == nb.delta and na.inst_num == nb.inst_num:
+            if np.round(na.delta, 2) == np.round(nb.delta, 2) and na.inst_num == nb.inst_num:
                 self.notes.pop(n)
 
     def chordify(self):
-        for n in range(1, len(self.notes)-1)[::-1]:
+        for n in range(1, len(self.notes))[::-1]:
             na = self.notes[n]
             nb = self.notes[n-1]
-            if na.delta == nb.delta:
-                nb.chord.append(na.inst_num)
+            if np.round(na.delta, 2) == np.round(nb.delta, 2):
+                # print(len(self.notes))
+                # print(nb.chord)
+                # print(na.inst_num)
+                nb.chord += [na.inst_num]
+                nb.dyn_chord += [na.dyn]
                 self.notes.pop(n)
+                # print(len(self.notes))
 
     def pulsify(self):
         for note in self.notes:
             note.pulse_delta = note.delta - self.pulse_start
+            # print (note.delta, self.pulse_start, note.pulse_delta, '\n')
 
 
     def get_note_name(self, inst_num):
         if self.noi == 2:
-            return ["b", "cis'"][inst_num]
+            return ["b", "d'"][inst_num]
         elif self.noi == 3:
-            return ["bes", "c'", "d'"][inst_num]
+            return ["a", "c'", "e'"][inst_num]
         elif self.noi == 4:
-            return ["a", "b", "cis'", "d'"][inst_num]
+            return ["g", "b", "d'", "f'"][inst_num]
         elif self.noi == 5:
-            return ["aes", "bes", "c'", "d'", "e'"][inst_num]
+            return ["f", "a", "c'", "e'", "g'"][inst_num]
 
     def notate(self):
         out = ''
+        if len(self.notes) == 0:
+            if self.mmr_trigger != 0 and self.mmr_trigger != 'no':
+                mult = to_time_sig(self.pulse_size)
+                out += 'R1*'+mult+'*'+str(self.mmr_trigger)
+                out += ' |\n'
+                return out
+            elif self.mmr_trigger == 'no':
+                return out
+            else:
+                mult = to_time_sig(self.pulse_size)
+                out += 'R1*'+mult+' |\n'
+                return out
         for p, pulse in enumerate(self.pulses):
             rel_notes = [n for n in self.notes if n.pulse_delta//1 == p]
             rel_deltas = [np.around(n.pulse_delta%1, decimals=2) for n in rel_notes]
-            nn = [self.get_note_name(n.inst_num) for n in rel_notes]
+            nn = [[self.get_note_name(i) for i in n.chord] for n in rel_notes]
+            dyns = [[dyn for dyn in note.dyn_chord] for note in rel_notes]
+            # dyns = [['\pp ','\p ','\mp ','\mf '][round(sum(dyn)/len(dyn))] for dyn in dyns]
+            dyns = [[' ','-> ','-^ '][round(sum(dyn)/len(dyn))] for dyn in dyns]
+
+
+            for c, chord in enumerate(nn):
+                if len(chord) == 1:
+                    nn[c] = chord[0]
+                elif len(chord) > 1:
+                    nn[c] = '<'+' '.join(chord)+'>'
             if pulse == 0.5:
+                check = 1
+                # if rel_deltas[0]
                 if len(rel_notes) == 0:
                     out += 'r8 '
+                    check = 0
                 elif len(rel_notes) == 1:
                     if rel_deltas[0] == 0:
-                        out += nn[0] + '8 '
-                    elif rel_deltas[0] == 0.5:
-                        out += 'r16[ ' + nn[0] + '16]'
+                        out += nn[0] + '8' + dyns[0]
+                        check = 0
+                    elif rel_deltas[0] == 0.25 or rel_deltas[0] == 0.5:
+                        out += 'r16[ ' + nn[0] + '16]' + dyns[0]
+                        check = 0
                 elif len(rel_notes) == 2:
-                    for i, rd in enumerate(rel_deltas):
-                        if i == 0:
-                            out += nn[0]+'16[ '
-                        if i == 1:
-                            out += nn[1] + '16] '
+                    out += nn[0] + '16[' + dyns[0] + nn[1] + '16]'+dyns[1]
+                    check = 0
+
+                if check == 1:
+                    print('yahoo!!!!')
+                    print(pulse)
+                    print(rel_notes)
+                    print(rel_deltas)
+
             else:
                 if len(rel_notes) == 0:
                     out += 'r4 '
                 elif len(rel_notes) == 1:
                     rd = rel_deltas[0]
-                    print(rd)
                     if rd == 0:
                         out += nn[0] + '4 '
                     elif rd == 0.25:
-                        out += 'r16[ ' + nn[0] + '8.] '
+                        out += 'r16[ ' + nn[0] + '8.]'+dyns[0]
                     elif rd == 0.5:
-                        out += 'r8[ ' + nn[0] + '8] '
+                        out += 'r8[ ' + nn[0] + '8]'+dyns[0]
                     elif rd == 0.75:
-                        out += 'r8.[ ' + nn[0] + '16] '
+                        out += 'r8.[ ' + nn[0] + '16]'+dyns[0]
                     else:
+                        # print('option a: '+str(rd))
                         out += '\\times 2/3 { '
                         if rd == 0.33:
-                            out += 'r8 ' + nn[0] + '4 '
+                            out += 'r8 ' + nn[0] + '4'+dyns[0]
                         elif rd == 0.67:
-                            out += 'r4 ' + nn[0] + '8 '
+                            out += 'r4 ' + nn[0] + '8'+dyns[0]
+
                         out += '} '
                 elif len(rel_notes) == 2:
                     if rel_deltas[0] == 0:
                         if rel_deltas[1] == 0.25:
-                            out += nn[0] + '16[ ' + nn[1] + '8.] '
+                            out += nn[0] + '16[' +dyns[0] + nn[1] + '8.]'+dyns[1]
                         elif rel_deltas[1] == 0.5:
-                            out += nn[0] + '8[ ' + nn[1] + '8] '
+                            out += nn[0] + '8[' +dyns[0] + nn[1] + '8]'+dyns[1]
                         elif rel_deltas[1] == 0.75:
-                            out += nn[0] + '8.[ ' + nn[1] + '16] '
+                            out += nn[0] + '8.[' +dyns[0] + nn[1] + '16]'+dyns[1]
                         else:
+                            # print('option b: ' + str(rel_deltas[1]))
+                            if rel_deltas[1] == 0:
+                                print('too many zeros')
+                                print(rel_deltas)
+                                print([i.inst_num for i in rel_notes])
+                                print([i.chord for i in rel_notes])
                             out += '\\times 2/3 { '
                             if rel_deltas[1] == 0.33:
-                                out += nn[0] + '8 ' + nn[1] + '4 '
+                                out += nn[0] + '8'+dyns[0] + nn[1] + '4' +dyns[1]
                             elif rel_deltas[1] == 0.67:
-                                out += nn[0] + '4 ' + nn[1] + '8 '
+                                out += nn[0] + '4' +dyns[0] + nn[1] + '8' +dyns[1]
                             out += '} '
                     elif rel_deltas[0] == 0.25:
                         if rel_deltas[1] == 0.5:
-                            out += 'r16[ ' + nn[0] + '16 ' + nn[1] + '8] '
+                            out += 'r16[ ' + nn[0] + '16' + dyns[0] + nn[1] + '8]' + dyns[1]
                         elif rel_deltas[1] == 0.75:
-                            out += 'r16[ ' + nn[0] + '8 ' + nn[1] + '16] '
+                            out += 'r16[ ' + nn[0] + '8' + dyns[0] + nn[1] + '16]' +dyns[1]
                     elif rel_deltas[0] == 0.5:
-                        out += 'r8[ ' + nn[0] + '16 ' + nn[1] + '16] '
+                        out += 'r8[ ' + nn[0] + '16' +dyns[0] + nn[1] + '16]' + dyns[1]
                     else:
-                        out += '\\times 2/3 { r8[ ' + nn[0] + 'r8 ' + nn[1] + 'r8] } '
+                        out += '\\times 2/3 { r8[ ' + nn[0] + '8' +dyns[0] + nn[1] + '8]'+dyns[1]+'} '
                 elif len(rel_notes) == 3:
                     if rel_deltas[0] == 0:
                         if rel_deltas[1] == 0.25:
                             if rel_deltas[2] == 0.5:
-                                out +=  nn[0] + '16[ ' + nn[1] + '16 ' + nn[2] + '8] '
+                                out +=  nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '8]' +dyns[2]
                             else:
-                                out += nn[0] + '16[ ' + nn[1] + '8 ' + nn[2] + '16] '
+                                out += nn[0] + '16[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '16]' + dyns[2]
                         elif rel_deltas[1] == 0.5:
-                            out += nn[0] + '8[ ' + nn[1] + '16 ' + nn[2] + '16] '
+                            out += nn[0] + '8[' + dyns[0] + nn[1] + '16' +dyns[1] + nn[2] + '16]' + dyns[2]
                         else:
-                            out += '\\times 2/3 { ' + nn[0] + '8[ ' + nn[1] + '8 ' + nn[2] + '8] } '
+                            out += '\\times 2/3 { ' + nn[0] + '8[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '8]' + dyns[2] + '} '
                     elif rel_deltas[0] == 0.25:
-                        out += 'r16[ ' + nn[0] + '16 ' + nn[1] + '16 ' + nn[2] + '16] '
+                        out += 'r16[ ' + nn[0] + '16' + dyns[0] + nn[1] + '16' +dyns[1] + nn[2] + '16]' + dyns[2]
                 else:
-                    out += nn[0] + '16[ ' + nn[1] + '16 ' + nn[2] + '16 ' + nn[3] +'16] '
+                    out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] +'16]' + dyns[3]
+
+
         out += '|\n'
         return out
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class Instrument:
@@ -183,9 +216,10 @@ class Player:
 
     def __init__(self, noi, player_num):
         # will prob need to be refined; currently max speed is 7, min is 1
-        self.max_td = 1 * (2 ** (self.player_num / 3.5))
+        self.max_td = 1.43 * (2 ** (self.player_num / 8))
         self.insts = [Instrument(self.max_td/self.noi) for i in range(self.noi)]
-        self.name = 'Player_' + str(player_num + 1)
+        self.name = 'Player' + str(player_num + 1)
+        self.ongoing_dyns = []
 
     def gather_notes(self):
         self.notes = []
@@ -196,21 +230,180 @@ class Player:
 
     def gather_measures(self):
         measure_sizes = pulses_to_measures(self.pulse_sizes)
-        self.measures = [Measure(ps, sum(measure_sizes[:i]), self.noi) for i, ps in enumerate(measure_sizes)]
+        # print(measure_sizes)
+        fix = [int(np.ceil(i)) for i in measure_sizes]
+        self.measures = [Measure(ps, sum(fix[:i]), self.noi, self, i) for i, ps in enumerate(measure_sizes)]
         for measure in self.measures:
             for note in self.notes:
                 if note.delta >= measure.pulse_start and note.delta < measure.pulse_end:
                     measure.notes.append(note)
 
+    def set_multi_measure_rests(self):
+        num_notes = [len(m.notes) for m in self.measures]
+        locs=[]
+        ct=0
+        for n, note_num in enumerate(num_notes):
+            if ((n+1) % 5) == 0:
+                if ct > 0:
+                    locs.append([start, ct])
+                ct = 0
+            if note_num == 0:
+                if ct == 0:
+                    start = n
+                ct += 1
+            else:
+                if ct > 1:
+                    locs.append([start, ct])
+                    ct = 0
+                if ct == 1:
+                    ct = 0
+        for m, measure in enumerate(self.measures):
+            for loc in locs:
+                if loc[0] == m:
+                    measure.mmr_trigger = loc[1]
+                    for s in range(loc[1]-1):
+                        self.measures[m + 1 + s].mmr_trigger = 'no'
+
+    def make_parts(self):
+        f = open('saves/lilypond/part'+str(self.player_num +1)+'.ly', 'w')
+
+        out = r"""
+        \include "Player"""+str(self.player_num+1)+r""".ly"
+        \version "2.18.2"
+
+        #(set-global-staff-size 20)
+
+        #(define my-positions
+           (lambda (grob)
+             (let* ((default-pos (beam::place-broken-parts-individually grob))
+                    (left-pos (car default-pos))
+                    (right-pos (cdr default-pos))
+                    (stems (ly:grob-object grob 'stems))
+                    (first-stem (ly:grob-array-ref stems 0))
+                    (dir (ly:grob-property first-stem 'direction))
+                    (max-pos
+                     (if (eq? dir UP)
+                         (max left-pos right-pos)
+                         (min left-pos right-pos)))
+                    (pos-translate
+                     (if (> (abs max-pos) 2.5)
+                         0
+                         (- 2.75 (abs max-pos)))))
+               (if (eq? dir UP)
+                   (cons (+ left-pos pos-translate) (+ right-pos pos-translate))
+                   (cons (- left-pos pos-translate) (- right-pos pos-translate))))))
+
+        \paper {
+        #(set-paper-size "letter")
+         %system-separator-markup = \slashSeparator
+         between-system-space = 1.5\cm
+         between-system-padding = #1
+         ragged-bottom=##f
+         ragged-last-bottom=##t
+         ragged-last = ##t
+         max-systems-per-page = 9
+         min-systems-per-page = 9
+
+         top-margin = 0.75\in
+         left-margin = 0.75\in
+         right-margin = 0.75\in
+         bottom-margin = 0.75\in
+
+
+
+         print-page-number = ##t
+           first-page-number = #1
+
+         oddHeaderMarkup = \markup \fill-line { " " }
+         evenHeaderMarkup = \markup \fill-line { " " }
+         oddFooterMarkup = \markup {
+         \fill-line {
+         \on-the-fly #not-first-page
+         \concat {
+         "-"
+             \fontsize #1.5
+             \on-the-fly #print-page-number-check-first
+             \fromproperty #'page:page-number-string
+          "-"
+             }
+           }
+         }
+         evenFooterMarkup = \markup {
+         \on-the-fly #not-first-page
+           \fill-line {
+         \concat {
+         "-"
+             \fontsize #1.5
+             \on-the-fly #print-page-number-check-first
+             \fromproperty #'page:page-number-string
+          "-"
+             }
+           }
+         }
+        }
+
+        \layout {
+
+        \context {
+        		\Score \remove "Bar_number_engraver" % remove bar numbers
+        	}
+
+
+        indent = #0
+
+         ragged-last = ##t
+         \context {
+           \Staff
+           \override Beam.auto-knee-gap = #30
+           \override Beam.damping = #2
+           \override Beam.positions = #my-positions
+           \override Stem #'stemlet-length = #0.6
+           \override Rest #'minimum-distance = #0.0
+           tupletFullLength = ##f
+           tupletFullLengthNote = ##t
+         }
+
+         \context {
+           \Voice
+           \remove "Forbid_line_break_engraver"
+
+           }
+        }
+
+        \header {
+        title = " """+number_to_english(self.piece.nos)+r""" Thoughts "
+        subtitle = " Player """ + str(self.player_num + 1) + r""" "
+        composer = "Jon Myers"
+        }
+
+          \score {
+          \new Staff \Player""" + number_to_english(self.player_num+1) + """
+
+            \layout {}
+          }
+          """
+
+        f.write(out)
+        f.close()
+
+
+
+
     def notate(self, measures, file_name):
+        print('printing: '+str(file_name))
         f = open('saves/lilypond/'+file_name+'.ly', 'w')
-        l_text = file_name + ' = {\n'
-        l_text += """\clef "percussion" \stopStaff """
+        l_text = '\pointAndClickOff\n'
+        l_text += 'Player' +number_to_english(self.player_num+1)+ ' = {\n'
+        l_text += """\clef "percussion" """
         l_text += """\override Staff.StaffSymbol #'line-count = #"""+str(self.noi)+'\n'
         l_text += "\override Staff.StaffSymbol.line-positions = #'("+lp_line_pos(self.noi)+")\n"
-        l_text += "\startStaff \key c \major\n"
+        l_text += "\compressFullBarRests\n\override MultiMeasureRest.expand-limit = #1\n"
+        l_text += "\set Score.markFormatter = #format-mark-box-numbers\n"
+        l_text += "\override Score.RehearsalMark.Y-offset = #3\n"
+
         prev_pulse_size = ''
         for m, measure in enumerate(measures):
+            if (m+1) % 5 == 0: l_text += "\mark #" + str(m+1) + "\n"
             sig = to_time_sig(measure.pulse_size)
             l_text += '\n%'+str(m+1)+'\n'
             if measure.pulse_size != prev_pulse_size:
@@ -218,7 +411,46 @@ class Player:
             prev_pulse_size = measure.pulse_size
 
             l_text += measure.notate()
+
+        l_text = l_text[:-2] + """\\bar "|." \n""" + l_text[-1]
         l_text += '}'
+        #this cleans it up
+        l_text = l_text.replace('r4 r4 ', 'r2 ')
+        l_text = l_text.replace('r2 r2 ', 'r1 ')
+        l_text = l_text.replace('r2 r4 ', 'r2. ')
+        f.write(l_text)
+        # for measure in measures:
+        f.close()
+
+    def notate_s(self, measures, file_name):
+        print('printing: '+str(file_name))
+        f = open('saves/lilypond/'+file_name+'.ly', 'w')
+        l_text = '\pointAndClickOff\n'
+        l_text += 'Player' +number_to_english(self.player_num+1)+ ' = {\n'
+        l_text += """\clef "percussion" """
+        l_text += """\override Staff.StaffSymbol #'line-count = #"""+str(self.noi)+'\n'
+        l_text += "\override Staff.StaffSymbol.line-positions = #'("+lp_line_pos(self.noi)+")\n"
+        l_text += "\set Score.markFormatter = #format-mark-box-numbers\n"
+        l_text += "\override Score.RehearsalMark.Y-offset = #3\n"
+        l_text += "\override Score.RehearsalMark.font-size = #5\n"
+
+        prev_pulse_size = ''
+        for m, measure in enumerate(measures):
+            if (m+1) % 5 == 0: l_text += "\mark #" + str(m+1) + "\n"
+            sig = to_time_sig(measure.pulse_size)
+            l_text += '\n%'+str(m+1)+'\n'
+            if measure.pulse_size != prev_pulse_size:
+                l_text += '\\numericTimeSignature ' + '\\time '+ sig +'\n'
+            prev_pulse_size = measure.pulse_size
+
+            l_text += measure.notate()
+
+        l_text = l_text[:-2] + """\\bar "|." \n""" + l_text[-1]
+        l_text += '}'
+        #this cleans it up
+        l_text = l_text.replace('r4 r4 ', 'r2 ')
+        l_text = l_text.replace('r2 r2 ', 'r1 ')
+        l_text = l_text.replace('r2 r4 ', 'r2. ')
         f.write(l_text)
         # for measure in measures:
         f.close()
@@ -288,8 +520,8 @@ class Atom:
         # print(self.note_matrix)
         # print(np.shape(self.note_matrix))
         self.base_rhythm = segment(np.shape(self.note_matrix)[1], self.atom_nCVI)
-        dyn_weights = normalize(np.random.uniform(0, 1, 4))
-        self.dyns = weighted_dc_alg(np.arange(4), len(self.cs_stream), weights = dyn_weights)
+        dyn_weights = normalize(np.random.uniform(0, 1, 3))
+        self.dyns = weighted_dc_alg(np.arange(3), len(self.cs_stream), weights = dyn_weights)
 
     def juggle_atom(self, spd):
         return normalize(np.array([spread(i, spd) for i in self.base_rhythm])) * self.atom_dur
@@ -376,6 +608,8 @@ class Piece:
 
     def __init__(self, players, nos, dur_tot, atomic_min, avg_rr):
         self.vels = [20, 50, 80, 110]
+        for player in self.players:
+            player.piece = self
         self.noi = sum([player.noi for player in players])
         self.section_durs = segment(self.nos, 10) * self.dur_tot
         self.section_start_times = [sum(self.section_durs[:i]) for i in range(self.nos)]
@@ -393,18 +627,200 @@ class Piece:
         self.make_lp_ready_notes()
         self.pop_pulse_sizes_to_players()
         self.notate()
+        self.make_score()
+        self.lp_notation()
         print()
 
+    def make_score(self):
+        f = open('saves/lilypond/score.ly', 'w')
+        out = r"""
+                \include "Player1_s.ly"
+                \include "Player2_s.ly"
+                \include "Player3_s.ly"
+                \include "Player4_s.ly"
+                \include "Player5_s.ly"
+                \include "Player6_s.ly"
+                \include "Player7_s.ly"
+                \include "Player8_s.ly"
+                \include "Player9_s.ly"
+                \include "Player10_s.ly"
+
+                \version "2.18.2"
+                #(set-global-staff-size 16)
+
+                #(define ((bars-per-line-engraver bar-list) context)
+                  (let* ((working-copy bar-list)
+                         (total (1+ (car working-copy))))
+                    `((acknowledgers
+                       (paper-column-interface
+                        . ,(lambda (engraver grob source-engraver)
+                             (let ((internal-bar (ly:context-property context 'internalBarNumber)))
+                               (if (and (pair? working-copy)
+                                        (= (remainder internal-bar total) 0)
+                                        (eq? #t (ly:grob-property grob 'non-musical)))
+                                   (begin
+                                     (set! (ly:grob-property grob 'line-break-permission) 'force)
+                                     (if (null? (cdr working-copy))
+                                         (set! working-copy bar-list)
+                                         (begin
+                                           (set! working-copy (cdr working-copy))))
+                                           (set! total (+ total (car working-copy))))))))))))
+
+#(set! paper-alist (cons '("Willie Size" . (cons (* 11 in) (* 14 in))) paper-alist))
+
+                #(define my-positions
+                   (lambda (grob)
+                     (let* ((default-pos (beam::place-broken-parts-individually grob))
+                            (left-pos (car default-pos))
+                            (right-pos (cdr default-pos))
+                            (stems (ly:grob-object grob 'stems))
+                            (first-stem (ly:grob-array-ref stems 0))
+                            (dir (ly:grob-property first-stem 'direction))
+                            (max-pos
+                             (if (eq? dir UP)
+                                 (max left-pos right-pos)
+                                 (min left-pos right-pos)))
+                            (pos-translate
+                             (if (> (abs max-pos) 2.5)
+                                 0
+                                 (- 2.75 (abs max-pos)))))
+                       (if (eq? dir UP)
+                           (cons (+ left-pos pos-translate) (+ right-pos pos-translate))
+                           (cons (- left-pos pos-translate) (- right-pos pos-translate))))))
+
+                \paper {
+                #(set-paper-size "Willie Size")
+                 %system-separator-markup = \slashSeparator
+                 between-system-space = 1.5\cm
+                 between-system-padding = #1
+                 ragged-bottom=##f
+                 ragged-last-bottom=##t
+                 ragged-last = ##t
+                 max-systems-per-page = 2
+                 min-systems-per-page = 1
+
+                 top-margin = 0.75\in
+                 left-margin = 0.75\in
+                 right-margin = 0.75\in
+                 bottom-margin = 0.75\in
+
+                 print-page-number = ##t
+                   first-page-number = #1
+
+                 oddHeaderMarkup = \markup \fill-line { " " }
+                 evenHeaderMarkup = \markup \fill-line { " " }
+                 oddFooterMarkup = \markup {
+                 \fill-line {
+                 \on-the-fly #not-first-page
+                 \concat {
+                 "-"
+                     \fontsize #1.5
+                     \on-the-fly #print-page-number-check-first
+                     \fromproperty #'page:page-number-string
+                  "-"
+                     }
+                   }
+                 }
+                 evenFooterMarkup = \markup {
+                 \on-the-fly #not-first-page
+                   \fill-line {
+                 \concat {
+                 "-"
+                     \fontsize #1.5
+                     \on-the-fly #print-page-number-check-first
+                     \fromproperty #'page:page-number-string
+                  "-"
+                     }
+                   }
+                 }
+                }
+
+                \layout {
+
+                \context {
+                		\Score \remove "Bar_number_engraver" % remove bar numbers
+                    %use the line below to insist on your layout
+                    \override NonMusicalPaperColumn.line-break-permission = ##f
+                    \consists #(bars-per-line-engraver '(4))
+                	}
+
+
+                indent = .75\in
+                short-indent = 0.25\in
+
+
+                 ragged-last = ##f
+                 \context {
+                   \Staff
+                   \override Beam.auto-knee-gap = #30
+                   \override Beam.damping = #2
+                   \override Beam.positions = #my-positions
+                   \override Stem #'stemlet-length = #0.6
+                   \override Rest #'minimum-distance = #0.0
+                   tupletFullLength = ##f
+                   tupletFullLengthNote = ##t
+                 }
+
+                 \context {
+                   \Voice
+                   \remove "Forbid_line_break_engraver"
+
+                   }
+                }
+
+                \header {
+                title = " """ + number_to_english(self.nos) + r""" Thoughts "
+                subtitle = "(for Caroline Myers)"
+                composer = "Jon Myers"
+
+                }
+
+                  \score  {
+                  \new StaffGroup <<
+                   \new Staff \with {instrumentName = "Player One" shortInstrumentName = "One" } \PlayerOne
+                   \new Staff \with {instrumentName = "Player Two" shortInstrumentName = "Two"} \PlayerTwo
+                   \new Staff \with {instrumentName = "Player Three" shortInstrumentName = "Three"} \PlayerThree
+                   \new Staff \with {instrumentName = "Player Four" shortInstrumentName = "Four"} \PlayerFour
+                   \new Staff \with {instrumentName = "Player Five" shortInstrumentName = "Five"} \PlayerFive
+                   \new Staff \with {instrumentName = "Player Six" shortInstrumentName = "Six"} \PlayerSix
+                   \new Staff \with {instrumentName = "Player Seven" shortInstrumentName = "Seven"} \PlayerSeven
+                   \new Staff \with {instrumentName = "Player Eight" shortInstrumentName = "Eight"} \PlayerEight
+                   \new Staff \with {instrumentName = "Player Nine" shortInstrumentName = "Nine"} \PlayerNine
+                   \new Staff \with {instrumentName = "Player Ten" shortInstrumentName = "Ten"} \PlayerTen
+                   >>
+
+                    \layout {
+
+                    }
+                  }
+                  """
+
+        f.write(out)
+        f.close()
+
+
+
+
+
+    def lp_notation(self):
+        for p in range(len(self.players)):
+            run_lily('part'+str(p+1))
+        run_lily('score')
 
     def notate(self):
+        print(len(self.players))
         for player in self.players:
             player.gather_notes()
             player.gather_measures()
+            player.set_multi_measure_rests()
             for measure in player.measures:
                 measure.remove_duplicates()
                 measure.chordify()
                 measure.pulsify()
             player.notate(player.measures, player.name)
+            player.notate_s(player.measures, player.name + '_s')
+            player.make_parts()
+
 
     def pop_pulse_sizes_to_players(self):
         for player in self.players:
@@ -422,12 +838,15 @@ class Piece:
                         pulse_num = index
                         loc_in_pulse = (delta - pulse.start_time) / pulse.dur_tot
                         pulse_loc = pulse_num + loc_in_pulse
-                pulse_loc = pulse_loc
+                # pulse_loc = pulse_loc
                 lp_note = [pulse_loc, ['pp', 'p', 'mp', 'mf'][[20, 50, 80, 110].index(q_note[3])]]
                 inst.lp_notes += [lp_note]
 
     def quantize(self):
-        self.pulse_sizes = iter_pc(100, self.all_locs).pulse_sizes
+        # self.pulse_sizes = iter_pc(100, self.all_locs).pulse_sizes
+        # print(self.pulse_sizes)
+        self.pulse_sizes =[1 for i in range(np.int(np.ceil(np.max(self.all_locs) * (100 / 60))))]
+        # print(self.pulse_sizes)
         for player in self.players:
             player.locs = []
             for inst in player.insts:
@@ -447,9 +866,6 @@ class Piece:
                 inst.q_locs = pc.q_locs
                 inst.q_notes=[]
                 for n, note in enumerate(inst.notes):
-                    # print()
-                    # print(inst.locs)
-                    # print(inst.q_locs)
                     q_note = [note[0], inst.q_locs[n], note[2], note[3]]
                     inst.q_notes.append(q_note)
 
@@ -458,12 +874,7 @@ class Piece:
             for group in section.groups:
                 for i, inst in enumerate(group.insts):
                     event_indices = np.nonzero(group.group_note_matrix[i])
-                    # print()
-                    # # print(group.reps)
-                    # print(group.group_note_matrix)
-                    # print(group.group_note_matrix[:, i])
-                    # print(event_indices)
-                    # print()
+
                     group.note_locs = np.array(group.note_locs)
                     note_locs = group.note_locs[event_indices]
                     dyns = group.group_dyns[event_indices]

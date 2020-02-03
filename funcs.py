@@ -299,6 +299,8 @@ def measure_up(grp):
     return out
 
 def pulses_to_measures(pulse_sizes):
+    if np.all(np.array(pulse_sizes) == 1):
+        return [5 for i in range(np.int(np.ceil(len(pulse_sizes)/5)))]
     subgroups = split_at_flip_points(pulse_sizes)
     measures = [measure_up(group) for group in subgroups]
     return [i for i in itertools.chain.from_iterable(measures)]
@@ -315,6 +317,7 @@ def delta_to_pulse_loc(delta, bpm):
     return delta/pulse_dur
 
 def to_time_sig(pulse_size):
+    if pulse_size == 5: sig = "5/4"
     if pulse_size == 4: sig = "4/4"
     if pulse_size == 3.5: sig = "7/8"
     if pulse_size == 3: sig = "3/4"
@@ -329,3 +332,30 @@ def lp_line_pos(num):
     if num == 3: out = "-2 0 2"
     if num == 2: out = "-1 1"
     return out
+
+
+
+
+def number_to_english(n):
+    TENS = {30: 'thirty', 40: 'forty', 50: 'fifty', 60: 'sixty', 70: 'seventy', 80: 'eighty', 90: 'ninety'}
+    ZERO_TO_TWENTY = (
+        'Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+        'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'
+    )
+    if any(not x.isdigit() for x in str(n)):
+        return ''
+
+    if n <= 20:
+        return ZERO_TO_TWENTY[n]
+    elif n < 100 and n % 10 == 0:
+        return TENS[n]
+    elif n < 100:
+        return number_to_english(n - (n % 10)) + ' ' + number_to_english(n % 10)
+    elif n < 1000 and n % 100 == 0:
+        return number_to_english(n / 100) + ' hundred'
+    elif n < 1000:
+        return number_to_english(n / 100) + ' hundred ' + number_to_english(n % 100)
+    elif n < 1000000:
+        return number_to_english(n / 1000) + ' thousand ' + number_to_english(n % 1000)
+
+    return ''
