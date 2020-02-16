@@ -7,7 +7,7 @@ import itertools
 
 class Pulse:
     #subdives aught to be co-prime
-    def __init__(self, start_time, bpm, subdivs=[3,4]):
+    def __init__(self, start_time, bpm, subdivs=[3, 4, 5]):
         self.subdivs = subdivs
         self.start_time = start_time
         self.dur_tot = bpm_to_pulse_dur(bpm)
@@ -22,6 +22,8 @@ class Pulse:
         self.err = len(locs) * 10 + 1000
         for i, grid in enumerate(self.grids):
             new_locs, error = quantize(locs, grid)
+            if i == 2:
+                error *= 1.6
             if error < self.err:
                 self.locs = new_locs
                 self.err = error

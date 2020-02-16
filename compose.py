@@ -22,11 +22,6 @@ class Note:
         self.dyn = ['pp','p','mp','mf'].index(lp_note[1])
         self.dyn_chord = [self.dyn]
 
-
-
-
-
-
 # this is solely for notation. inst_num is relative to the player, not the whole
 # shebang.
 class Measure:
@@ -78,6 +73,8 @@ class Measure:
             return ["g", "b", "d'", "f'"][inst_num]
         elif self.noi == 5:
             return ["f", "a", "c'", "e'", "g'"][inst_num]
+        elif self.noi == 6:
+            return ["c", "f", "b", "e'", "a'", "d''"][inst_num]
 
     def notate(self):
         out = ''
@@ -133,6 +130,7 @@ class Measure:
             else:
                 if len(rel_notes) == 0:
                     out += 'r4 '
+
                 elif len(rel_notes) == 1:
                     rd = rel_deltas[0]
                     if rd == 0:
@@ -143,60 +141,192 @@ class Measure:
                         out += 'r8[ ' + nn[0] + '8]'+dyns[0]
                     elif rd == 0.75:
                         out += 'r8.[ ' + nn[0] + '16]'+dyns[0]
-                    else:
-                        # print('option a: '+str(rd))
+                    elif round(rd,2) == 0.33 or round(rd,2) == 0.67:
                         out += '\\times 2/3 { '
                         if rd == 0.33:
                             out += 'r8 ' + nn[0] + '4'+dyns[0]
                         elif rd == 0.67:
                             out += 'r4 ' + nn[0] + '8'+dyns[0]
-
                         out += '} '
+                    elif (10 * rd) % 2 == 0:
+                        out += '\\times 4/5 { '
+                        if rd == 0.2:
+                            out += 'r16 ' + nn[0] + '4' + dyns[0]
+                        elif rd == 0.4:
+                            out += 'r8[ ' + nn[0] + '8.' + dyns[0] + ']'
+                        elif rd == 0.6:
+                            out += 'r8.[ ' + nn[0] + '8' + dyns[0] + ']'
+                        elif rd == 0.8:
+                            out += 'r4 ' + nn[0] + '16' + dyns[0]
+                        out += '} '
+
                 elif len(rel_notes) == 2:
                     if rel_deltas[0] == 0:
                         if rel_deltas[1] == 0.25:
-                            out += nn[0] + '16[' +dyns[0] + nn[1] + '8.]'+dyns[1]
+                            out += nn[0] + '16[' + dyns[0] + nn[1] + '8.]' + dyns[1]
                         elif rel_deltas[1] == 0.5:
-                            out += nn[0] + '8[' +dyns[0] + nn[1] + '8]'+dyns[1]
+                            out += nn[0] + '8[' + dyns[0] + nn[1] + '8]' + dyns[1]
                         elif rel_deltas[1] == 0.75:
-                            out += nn[0] + '8.[' +dyns[0] + nn[1] + '16]'+dyns[1]
-                        else:
-                            # print('option b: ' + str(rel_deltas[1]))
+                            out += nn[0] + '8.[' + dyns[0] + nn[1] + '16]' + dyns[1]
+                        elif 0.33 in [round(i,2) for i in rel_deltas] or 0.67 in [round(i,2) for i in rel_deltas]:
                             if rel_deltas[1] == 0:
                                 print('too many zeros')
                                 print(rel_deltas)
                                 print([i.inst_num for i in rel_notes])
                                 print([i.chord for i in rel_notes])
                             out += '\\times 2/3 { '
-                            if rel_deltas[1] == 0.33:
-                                out += nn[0] + '8'+dyns[0] + nn[1] + '4' +dyns[1]
-                            elif rel_deltas[1] == 0.67:
-                                out += nn[0] + '4' +dyns[0] + nn[1] + '8' +dyns[1]
+                            if round(rel_deltas[1],2) == 0.33:
+                                out += nn[0] + '8' + dyns[0] + nn[1] + '4' + dyns[1]
+                            elif round(rel_deltas[1],2) == 0.67:
+                                out += nn[0] + '4' + dyns[0] + nn[1] + '8' + dyns[1]
                             out += '} '
+                        elif (10 * rel_deltas[1]) % 2 == 0:
+                            out += '\\times 4/5 { '
+                            if rel_deltas[1] == 0.2:
+                                out += nn[0] + '16' + dyns[0] + nn[1] + '4' + dyns[1]
+                            if rel_deltas[1] == 0.4:
+                                out += nn[0] + '8[' + dyns[0] + nn[1] + '8.]' + dyns[1]
+                            if rel_deltas[1] == 0.6:
+                                out += nn[0] + '8.[' + dyns[0] + nn[1] + '8]' + dyns[1]
+                            if rel_deltas[1] == 0.8:
+                                out += nn[0] + '4' + dyns[0] + nn[1] + '16' + dyns[1]
+                            out += '} '
+
+                    elif round(rel_deltas[0],2) == 0.33:
+                        out += '\\times 2/3 { '
+                        out += 'r8[ ' + nn[0] + '8' + dyns[0] + nn[1] + '8]' + dyns[1]
+                        out += '} '
+
+                    elif rel_deltas[0] == 0.2:
+                        out += '\\times 4/5 { '
+                        if rel_deltas[1] == 0.4:
+                            out += 'r16[ ' + nn[0] + '16' + dyns[0] + nn[1] + '8.]' + dyns[1]
+                        if rel_deltas[1] == 0.6:
+                            out += 'r16[ ' + nn[0] + '8' + dyns[0] + nn[1] + '8]' + dyns[1]
+                        if rel_deltas[1] == 0.8:
+                            out += 'r16[' + nn[0] + '8.' + dyns[0] + nn[1] + '16]' + dyns[1]
+                        out += '} '
+
+                    elif rel_deltas[0] == 0.4:
+                        out += '\\times 4/5 { '
+                        if rel_deltas[1] == 0.6:
+                            out += 'r8[ ' + nn[0] + '16' + dyns[0] + nn[1] + '8]' + dyns[1]
+                        if rel_deltas[1] == 0.8:
+                            out += 'r8[ ' + nn[0] + '8'  + dyns[0] + nn[1] + '16]'  + dyns[1]
+                        out += '} '
+
+                    elif rel_deltas[0] == 0.6:
+                        out += '\\times 4/5 { '
+                        out += 'r8.[ ' + nn[0] + '16' + dyns[0] + nn[1] + '16]' + dyns[1]
+                        out += '} '
+
                     elif rel_deltas[0] == 0.25:
                         if rel_deltas[1] == 0.5:
                             out += 'r16[ ' + nn[0] + '16' + dyns[0] + nn[1] + '8]' + dyns[1]
                         elif rel_deltas[1] == 0.75:
-                            out += 'r16[ ' + nn[0] + '8' + dyns[0] + nn[1] + '16]' +dyns[1]
+                            out += 'r16[ ' + nn[0] + '8' + dyns[0] + nn[1] + '16]' + dyns[1]
+
                     elif rel_deltas[0] == 0.5:
                         out += 'r8[ ' + nn[0] + '16' +dyns[0] + nn[1] + '16]' + dyns[1]
-                    else:
+
+                    elif rel_deltas[0] == 0.3:
                         out += '\\times 2/3 { r8[ ' + nn[0] + '8' +dyns[0] + nn[1] + '8]'+dyns[1]+'} '
+
+
                 elif len(rel_notes) == 3:
                     if rel_deltas[0] == 0:
-                        if rel_deltas[1] == 0.25:
+                        if rel_deltas[1] == 0.2:
+                            out += '\\times 4/5 { '
+
+                            if rel_deltas[2] == 0.4:
+                                out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '8.]' + dyns[2]
+
+                            if rel_deltas[2] == 0.6:
+                                out += nn[0] + '16[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '8]' + dyns[2]
+
+                            if rel_deltas[2] == 0.8:
+                                out += nn[0] + '16[' + dyns[0] + nn[1] + '8.' + dyns[1] + nn[2] + '16]' + dyns[2]
+
+                            out += '} '
+
+                        elif rel_deltas[1] == 0.4:
+                            out += '\\times 4/5 { '
+
+                            if rel_deltas[2] == 0.6:
+                                out += nn[0] + '8[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '8]' + dyns[2]
+
+                            if rel_deltas[2] == 0.8:
+                                out += nn[0] + '8[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '16]' + dyns[2]
+                            out += '} '
+
+                        elif rel_deltas[1] == 0.6:
+                            out += '\\times 4/5 { '
+                            out += nn[0] + '8.[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16]' + dyns[2]
+                            out += '} '
+
+                        elif rel_deltas[1] == 0.25:
                             if rel_deltas[2] == 0.5:
                                 out +=  nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '8]' +dyns[2]
-                            else:
+                            elif rel_deltas[2] == 0.75:
                                 out += nn[0] + '16[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '16]' + dyns[2]
+
                         elif rel_deltas[1] == 0.5:
                             out += nn[0] + '8[' + dyns[0] + nn[1] + '16' +dyns[1] + nn[2] + '16]' + dyns[2]
-                        else:
+
+                        elif rel_deltas[1]== 0.33:
                             out += '\\times 2/3 { ' + nn[0] + '8[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '8]' + dyns[2] + '} '
+
                     elif rel_deltas[0] == 0.25:
                         out += 'r16[ ' + nn[0] + '16' + dyns[0] + nn[1] + '16' +dyns[1] + nn[2] + '16]' + dyns[2]
-                else:
-                    out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] +'16]' + dyns[3]
+
+                    elif rel_deltas[0] == 0.2:
+                        out += '\\times 4/5 { '
+
+                        if rel_deltas[1] == 0.4:
+
+                            if rel_deltas[2] == 0.6:
+                                out += 'r16[ ' + nn[0] +'16' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '8]' + dyns[2]
+
+                            elif rel_deltas[2] == 0.8:
+                                out += 'r16[ ' + nn[0] +'16' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '16]' + dyns[2]
+
+                        elif rel_deltas[1] == 0.6:
+                            out += 'r16[ ' + nn[0] + '8' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16]' + dyns[2]
+
+                        out += '} '
+
+                    elif rel_deltas[0] == 0.4:
+                        out += '\\times 4/5 { '
+                        out += 'r8[' + nn[0] + '16' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16]' + dyns[2]
+                        out += '} '
+
+                elif len(rel_notes) == 4:
+                    if rel_deltas[0] == 0:
+                        if rel_deltas[1] == 0.25:
+                            out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] +'16]' + dyns[3]
+                        elif rel_deltas[1] == 0.2:
+                            out += '\\times 4/5 { '
+                            if rel_deltas[2] == 0.4:
+                                if rel_deltas[3] == 0.6:
+                                    out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] + '8]' + dyns[3]
+                                elif rel_deltas[3] == 0.8:
+                                    out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '8' + dyns[2] + nn[3] + '16]' + dyns[3]
+                            elif rel_deltas[2] == 0.6:
+                                out += nn[0] + '16[' + dyns[0] + nn[1] + '8' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] + '16]' + dyns[3]
+                            out += '} '
+                        elif rel_deltas[1] == 0.4:
+                            out += '\\times 4/5 { '
+                            out += nn[0] + '8[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] + '16]' + dyns[3]
+                            out += '} '
+                    elif rel_deltas[0] == 0.2:
+                        out += '\\times 4/5 { '
+                        out += 'r16[ ' + nn[0] + '16' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] + '16]' + dyns[3]
+                        out += '} '
+
+                elif len(rel_notes) == 5:
+                    out += '\\times 4/5 { '
+                    out += nn[0] + '16[' + dyns[0] + nn[1] + '16' + dyns[1] + nn[2] + '16' + dyns[2] + nn[3] + '16]' + dyns[3] + nn[4] + '16]' + dyns[4]
+                    out += '} '
 
 
         out += '|\n'
@@ -216,7 +346,7 @@ class Player:
 
     def __init__(self, noi, player_num):
         # will prob need to be refined; currently max speed is 7, min is 1
-        self.max_td = 1.43 * (2 ** (self.player_num / 8))
+        self.max_td = 3
         self.insts = [Instrument(self.max_td/self.noi) for i in range(self.noi)]
         self.name = 'Player' + str(player_num + 1)
         self.ongoing_dyns = []
@@ -286,9 +416,9 @@ class Player:
                          (max left-pos right-pos)
                          (min left-pos right-pos)))
                     (pos-translate
-                     (if (> (abs max-pos) 2.5)
+                     (if (> (abs max-pos) 5.5)
                          0
-                         (- 2.75 (abs max-pos)))))
+                         (- 5.75 (abs max-pos)))))
                (if (eq? dir UP)
                    (cons (+ left-pos pos-translate) (+ right-pos pos-translate))
                    (cons (- left-pos pos-translate) (- right-pos pos-translate))))))
@@ -301,8 +431,8 @@ class Player:
          ragged-bottom=##f
          ragged-last-bottom=##t
          ragged-last = ##t
-         max-systems-per-page = 9
-         min-systems-per-page = 9
+         max-systems-per-page = 7
+         min-systems-per-page = 7
 
          top-margin = 0.75\in
          left-margin = 0.75\in
@@ -359,6 +489,7 @@ class Player:
            \override Beam.positions = #my-positions
            \override Stem #'stemlet-length = #0.6
            \override Rest #'minimum-distance = #0.0
+           \override Stem.length-fraction = #(magstep 4.5)
            tupletFullLength = ##f
            tupletFullLengthNote = ##t
          }
@@ -400,6 +531,7 @@ class Player:
         l_text += "\compressFullBarRests\n\override MultiMeasureRest.expand-limit = #1\n"
         l_text += "\set Score.markFormatter = #format-mark-box-numbers\n"
         l_text += "\override Score.RehearsalMark.Y-offset = #3\n"
+        l_text += r"\tempo 4 = 95"+"\n"
 
         prev_pulse_size = ''
         for m, measure in enumerate(measures):
@@ -433,6 +565,7 @@ class Player:
         l_text += "\set Score.markFormatter = #format-mark-box-numbers\n"
         l_text += "\override Score.RehearsalMark.Y-offset = #3\n"
         l_text += "\override Score.RehearsalMark.font-size = #5\n"
+        l_text += r"\tempo 4 = 95"+"\n"
 
         prev_pulse_size = ''
         for m, measure in enumerate(measures):
@@ -488,7 +621,7 @@ class Atom:
         for inst in self.insts:
             # print(inst)
             max_td = inst.max_td
-            min_td = 1 / self.atom_dur
+            min_td = 3 / self.atom_dur
             td = np.clip(np.random.normal(0.5, 0.25), 0, 1) * np.log2(max_td / min_td)
             td = min_td * (2 ** td)
             #number of notes
@@ -637,13 +770,6 @@ class Piece:
                 \include "Player1_s.ly"
                 \include "Player2_s.ly"
                 \include "Player3_s.ly"
-                \include "Player4_s.ly"
-                \include "Player5_s.ly"
-                \include "Player6_s.ly"
-                \include "Player7_s.ly"
-                \include "Player8_s.ly"
-                \include "Player9_s.ly"
-                \include "Player10_s.ly"
 
                 \version "2.18.2"
                 #(set-global-staff-size 16)
@@ -681,23 +807,23 @@ class Piece:
                                  (max left-pos right-pos)
                                  (min left-pos right-pos)))
                             (pos-translate
-                             (if (> (abs max-pos) 2.5)
+                             (if (> (abs max-pos) 5.5)
                                  0
-                                 (- 2.75 (abs max-pos)))))
+                                 (- 5.75 (abs max-pos)))))
                        (if (eq? dir UP)
                            (cons (+ left-pos pos-translate) (+ right-pos pos-translate))
                            (cons (- left-pos pos-translate) (- right-pos pos-translate))))))
 
                 \paper {
-                #(set-paper-size "Willie Size")
-                 %system-separator-markup = \slashSeparator
-                 between-system-space = 1.5\cm
+                #(set-paper-size "tabloid")
+                 system-separator-markup = \slashSeparator
+                 % between-system-space = 1.5\cm
                  between-system-padding = #1
                  ragged-bottom=##f
                  ragged-last-bottom=##t
                  ragged-last = ##t
-                 max-systems-per-page = 2
-                 min-systems-per-page = 1
+                 max-systems-per-page = 4
+                 min-systems-per-page = 4
 
                  top-margin = 0.75\in
                  left-margin = 0.75\in
@@ -740,6 +866,8 @@ class Piece:
                 \context {
                 		\Score \remove "Bar_number_engraver" % remove bar numbers
                     %use the line below to insist on your layout
+                    \override StaffGrouper.staff-staff-spacing.padding = #5
+                    % \override StaffGrouper.staff-staff-spacing.basic-distance = #10
                     \override NonMusicalPaperColumn.line-break-permission = ##f
                     \consists #(bars-per-line-engraver '(4))
                 	}
@@ -757,6 +885,7 @@ class Piece:
                    \override Beam.positions = #my-positions
                    \override Stem #'stemlet-length = #0.6
                    \override Rest #'minimum-distance = #0.0
+                   \override Stem.length-fraction = #(magstep 4.5)
                    tupletFullLength = ##f
                    tupletFullLengthNote = ##t
                  }
@@ -780,13 +909,6 @@ class Piece:
                    \new Staff \with {instrumentName = "Player One" shortInstrumentName = "One" } \PlayerOne
                    \new Staff \with {instrumentName = "Player Two" shortInstrumentName = "Two"} \PlayerTwo
                    \new Staff \with {instrumentName = "Player Three" shortInstrumentName = "Three"} \PlayerThree
-                   \new Staff \with {instrumentName = "Player Four" shortInstrumentName = "Four"} \PlayerFour
-                   \new Staff \with {instrumentName = "Player Five" shortInstrumentName = "Five"} \PlayerFive
-                   \new Staff \with {instrumentName = "Player Six" shortInstrumentName = "Six"} \PlayerSix
-                   \new Staff \with {instrumentName = "Player Seven" shortInstrumentName = "Seven"} \PlayerSeven
-                   \new Staff \with {instrumentName = "Player Eight" shortInstrumentName = "Eight"} \PlayerEight
-                   \new Staff \with {instrumentName = "Player Nine" shortInstrumentName = "Nine"} \PlayerNine
-                   \new Staff \with {instrumentName = "Player Ten" shortInstrumentName = "Ten"} \PlayerTen
                    >>
 
                     \layout {

@@ -327,6 +327,7 @@ def to_time_sig(pulse_size):
     return sig
 
 def lp_line_pos(num):
+    if num == 6: out = "-7 -4 -1 2 5 8"
     if num == 5: out = "-4 -2 0 2 4"
     if num == 4: out = "-3 -1 1 3"
     if num == 3: out = "-2 0 2"
